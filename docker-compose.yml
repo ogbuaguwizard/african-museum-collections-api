@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: african-museum-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - african-museum-network
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15-alpine
+    container_name: african-museum-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: laravel
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: african_museum
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - african-museum-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: african-museum-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - african-museum-network
+    depends_on:
+      - app
+
+  redis:
+    image: redis:alpine
+    container_name: african-museum-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - african-museum-network
+
+networks:
+  african-museum-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
