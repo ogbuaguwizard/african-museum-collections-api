@@ -33,8 +33,15 @@ RUN composer install --no-interaction
 # Copy Nginx configuration (this is the key step)
 COPY docker/nginx/default.conf /etc/nginx/sites-enabled/default
 
+# Copy startup script
+COPY start.sh /var/www/html/start.sh
+
+# Make it executable
+RUN chmod +x /var/www/html/start.sh
+
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # Expose port 80 so Render can detect it
