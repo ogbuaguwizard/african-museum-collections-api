@@ -1,58 +1,177 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# African Museum Artifacts API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel-powered API that aggregates, normalizes, stores, and exposes African museum artifact data from multiple open-access museum collections through a unified schema.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Overview
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+African cultural heritage is distributed across museums, archives, and cultural institutions around the world. Each institution exposes its collections differently, making it difficult for developers, researchers, and digital heritage projects to work with the data consistently.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+The African Museum Artifacts API provides a unified data model by importing artifact records from multiple public museum APIs, normalizing their metadata, and exposing them through a single platform.
 
-## Learning Laravel
+This project serves as both a portfolio application demonstrating modern Laravel development and the foundation for future cultural heritage software.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+---
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Goals
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+- Aggregate artifact data from multiple museum APIs.
+- Normalize inconsistent metadata into a single schema.
+- Store artifacts locally using PostgreSQL.
+- Provide a searchable catalog.
+- Expose a clean REST API.
+- Serve as a reusable data platform for cultural heritage applications.
 
-## Agentic Development
+---
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Planned Data Sources
+
+- Metropolitan Museum of Art Collection API
+- Smithsonian Open Access API
+- Harvard Art Museums API
+- Cleveland Museum of Art API
+- Europeana API
+- Rijksmuseum API
+- Art Institute of Chicago API
+- New York Public Library Digital Collections API
+- Internet Archive Metadata API
+- Open Library API
+
+Priority is given to records related to African cultural heritage.
+
+---
+
+## Current Features
+
+- Artifact data model
+- UUID primary keys
+- Eloquent accessors and mutators
+- Attribute casting
+- Query scopes
+- Model events and observers
+- Soft deletes
+- Factories and seeders
+- Metadata normalization
+- Searchable artifact catalog (in progress)
+
+---
+
+## Technology Stack
+
+| Technology | Version |
+|------------|----------|
+| Laravel | 13 |
+| PHP | 8.2+ |
+| PostgreSQL | 15 |
+| Docker | Deployment only |
+| Render | Production deployment |
+
+---
+
+## Local Installation
+
+Clone the repository.
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone https://github.com/yourusername/african-museum-artifacts-api.git
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Enter the project.
 
-## Contributing
+```bash
+cd african-museum-artifacts-api
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Install dependencies.
 
-## Code of Conduct
+```bash
+composer install
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Create the environment file.
 
-## Security Vulnerabilities
+```bash
+cp .env.example .env
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Generate the application key.
+
+```bash
+php artisan key:generate
+```
+
+Configure your PostgreSQL database inside `.env`.
+
+Run the migrations.
+
+```bash
+php artisan migrate
+```
+
+Start the development server.
+
+```bash
+php artisan serve
+```
+
+---
+
+## Deployment
+
+This project is designed for deployment on **Render** using Docker.
+
+Deployment includes:
+
+- Dockerfile
+- PostgreSQL
+- Automatic GitHub deployments
+- Environment variable configuration
+- Automatic database migrations
+
+---
+
+## Roadmap
+
+### Milestone 1
+- Project foundation
+- Artifact model
+- Database schema
+- UUID support
+- Eloquent fundamentals
+
+### Milestone 2
+- Museum API import engine
+- Metadata normalization
+- Initial data import
+
+### Milestone 3
+- Search and filtering
+- Public API endpoints
+- Resource responses
+
+### Milestone 4
+- Dashboard
+- Artifact detail pages
+- Source browser
+
+### Milestone 5
+- Authentication
+- Queues
+- Performance optimization
+- Testing
+- Production improvements
+
+---
+
+## Project Status
+
+🚧 Active Development
+
+This project is being developed incrementally as part of a deep dive into Laravel. Each milestone introduces new Laravel concepts while evolving the application into a production-ready platform.
+
+---
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT License
