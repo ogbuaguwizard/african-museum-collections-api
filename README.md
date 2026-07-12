@@ -60,7 +60,7 @@ Priority is given to records related to African cultural heritage.
 ## Technology Stack
 
 | Technology | Version |
-|------------|----------|
+| --- | --- |
 | Laravel | 13 |
 | PHP | 8.2+ |
 | PostgreSQL | 15 |
@@ -74,7 +74,7 @@ Priority is given to records related to African cultural heritage.
 Clone the repository.
 
 ```bash
-git clone https://github.com/yourusername/african-museum-artifacts-api.git
+git clone https://github.com/ogbuaguwizard/african-museum-collections-api.git
 ```
 
 Enter the project.
@@ -134,6 +134,7 @@ Deployment includes:
 ## Roadmap
 
 ### Milestone 1
+
 - Project foundation
 - Artifact model
 - Database schema
@@ -141,21 +142,25 @@ Deployment includes:
 - Eloquent fundamentals
 
 ### Milestone 2
+
 - Museum API import engine
 - Metadata normalization
 - Initial data import
 
 ### Milestone 3
+
 - Search and filtering
 - Public API endpoints
 - Resource responses
 
 ### Milestone 4
+
 - Dashboard
 - Artifact detail pages
 - Source browser
 
 ### Milestone 5
+
 - Authentication
 - Queues
 - Performance optimization
