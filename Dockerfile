@@ -47,5 +47,5 @@ RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 # Expose port 80 so Render can detect it
 EXPOSE 80
 
-# Start PHP-FPM in the background, then run Nginx in the foreground
-CMD sh -c "php-fpm -D && nginx -g 'daemon off;'"
+# Use the script as the entry point
+CMD ["/var/www/html/start.sh"]
