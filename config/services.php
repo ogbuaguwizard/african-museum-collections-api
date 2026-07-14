@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'met_api' => [
+        'base_url' => env('MET_API_BASE_URL', 'https://collectionapi.metmuseum.org/public/collection/v1'),
+        'strict_filtering' => env('MET_API_STRICT_FILTERING', true),
+    ],
 ];
