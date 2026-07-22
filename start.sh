@@ -9,6 +9,7 @@ echo "Building Vite assets..."
 npm run build
 
 echo "Caching configuration..."
+php artisan config:clear
 php artisan config:cache
 
 echo "Caching routes..."
