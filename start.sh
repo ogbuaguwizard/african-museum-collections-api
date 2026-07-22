@@ -2,6 +2,12 @@
 
 set -e
 
+echo "Installing Node dependencies..."
+npm install
+
+echo "Building Vite assets..."
+npm run build
+
 echo "Caching configuration..."
 php artisan config:cache
 
