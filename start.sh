@@ -11,6 +11,9 @@ npm run build
 echo "Caching configuration..."
 php artisan config:cache
 
+# Force HTTPS for asset URLs
+php artisan config:set app.url=https://african-artifact-collections.onrender.com
+
 echo "Caching routes..."
 php artisan route:cache
 

@@ -21,5 +21,8 @@ export default defineConfig({
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },
+        build: {
+            assetsInlineLimit: 0,
+        },
     },
 });
