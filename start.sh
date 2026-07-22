@@ -1,19 +1,18 @@
 #!/bin/sh
 
-set -e  # Stop on error
+set -e
 
-echo "=== Starting deployment script ==="
+echo "Caching configuration..."
+php artisan config:cache
 
-echo "Clearing config cache..."
-php artisan config:clear
+echo "Caching routes..."
+php artisan route:cache
 
-echo "Clearing view cache..."
-php artisan view:clear
+echo "Caching views..."
+php artisan view:cache
 
 echo "Running migrations..."
-php artisan migrate --force --verbose
-
-echo "Migrations completed."
+php artisan migrate --force
 
 echo "Starting PHP-FPM..."
 php-fpm -D

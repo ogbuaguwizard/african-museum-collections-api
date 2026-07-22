@@ -2,32 +2,39 @@
 
 A Laravel-powered API that aggregates, normalizes, stores, and exposes African museum artifact data from multiple open-access museum collections through a unified schema.
 
+> **Project Status:** 🚧 Active Development
+
 ---
 
 ## Overview
 
-African cultural heritage is distributed across museums, archives, and cultural institutions around the world. Each institution exposes its collections differently, making it difficult for developers, researchers, and digital heritage projects to work with the data consistently.
+African cultural heritage is distributed across museums, archives, libraries, and cultural institutions around the world. Each institution exposes its collections using different metadata standards and API structures, making it difficult for developers, researchers, and digital heritage projects to work with the data consistently.
 
-The African Museum Artifacts API provides a unified data model by importing artifact records from multiple public museum APIs, normalizing their metadata, and exposing them through a single platform.
+The African Museum Artifacts API solves this problem by importing artifact records from multiple public museum APIs, transforming them into a unified schema, storing them locally, and exposing them through a single platform.
 
-This project serves as both a portfolio application demonstrating modern Laravel development and the foundation for future cultural heritage software.
+This project is the first in a series of portfolio applications focused on applying modern Laravel to cultural heritage technology.
 
 ---
 
-## Goals
+## Objectives
 
-- Aggregate artifact data from multiple museum APIs.
-- Normalize inconsistent metadata into a single schema.
-- Store artifacts locally using PostgreSQL.
-- Provide a searchable catalog.
+- Aggregate artifact metadata from multiple museum APIs.
+- Normalize inconsistent metadata into a unified schema.
+- Store normalized records in PostgreSQL.
+- Build a searchable artifact catalog.
 - Expose a clean REST API.
-- Serve as a reusable data platform for cultural heritage applications.
+- Serve as a reusable backend for cultural heritage applications.
 
 ---
 
-## Planned Data Sources
+## Supported Data Sources
 
-- Metropolitan Museum of Art Collection API
+Current integration:
+
+- ✅ Metropolitan Museum of Art Collection API
+
+Planned integrations:
+
 - Smithsonian Open Access API
 - Harvard Art Museums API
 - Cleveland Museum of Art API
@@ -44,28 +51,51 @@ Priority is given to records related to African cultural heritage.
 
 ## Current Features
 
-- Artifact data model
+### Domain Model
+
+- Artifact model
 - UUID primary keys
-- Eloquent accessors and mutators
-- Attribute casting
-- Query scopes
-- Model events and observers
 - Soft deletes
-- Factories and seeders
+- Mass assignment
+- Attribute casting
+- Accessors
+- Mutators
+- Local query scopes
+- Model observers
+- Model factories
+- Database seeders
+
+### Import Engine
+
+- Metropolitan Museum of Art Collection API integration
+- Secure background import endpoint
+- Batch importing with offset support
+- Import progress monitoring
 - Metadata normalization
-- Searchable artifact catalog (in progress)
+- African heritage filtering
+- Duplicate detection
+- Source metadata preservation
+- Image importing
+
+### Infrastructure
+
+- PostgreSQL
+- Docker deployment
+- Render deployment
+- Automatic database migrations
+- Feature-based Git workflow
 
 ---
 
 ## Technology Stack
 
 | Technology | Version |
-| --- | --- |
+|------------|----------|
 | Laravel | 13 |
 | PHP | 8.2+ |
 | PostgreSQL | 15 |
-| Docker | Deployment only |
-| Render | Production deployment |
+| Docker | Production Deployment |
+| Render | Hosting |
 
 ---
 
@@ -74,10 +104,10 @@ Priority is given to records related to African cultural heritage.
 Clone the repository.
 
 ```bash
-git clone https://github.com/ogbuaguwizard/african-museum-collections-api.git
+git clone https://github.com/ogbuaguwizard/african-museum-artifacts-api.git
 ```
 
-Enter the project.
+Navigate into the project.
 
 ```bash
 cd african-museum-artifacts-api
@@ -117,66 +147,138 @@ php artisan serve
 
 ---
 
+## Importing Museum Data
+
+Import artifacts from the Metropolitan Museum of Art Collection API.
+
+Import the first batch:
+
+```bash
+php artisan import:met --limit=1000 --offset=0
+```
+
+Import the second batch:
+
+```bash
+php artisan import:met --limit=1000 --offset=1000
+```
+
+Import the third batch:
+
+```bash
+php artisan import:met --limit=1000 --offset=2000
+```
+
+Continue increasing the `offset` value until the desired portion of the collection has been imported.
+
+The importer automatically:
+
+- Retrieves artifact records
+- Filters African heritage objects
+- Normalizes metadata
+- Preserves source metadata
+- Prevents duplicate records
+
+Production imports are performed through secure endpoints protected by an application token.
+
+For deployment instructions and production imports, see the **Deployment Guide** below.
+
+---
+
 ## Deployment
 
-This project is designed for deployment on **Render** using Docker.
+The application is deployed to **Render** using Docker and PostgreSQL.
 
-Deployment includes:
+Deployment features include:
 
-- Dockerfile
-- PostgreSQL
 - Automatic GitHub deployments
-- Environment variable configuration
+- Docker image builds
 - Automatic database migrations
+- Secure background imports
+- Batch importing
+- Import progress monitoring
+
+See the complete deployment guide:
+
+- 📖 [Deployment Guide](DEPLOYMENT.md)
+
+---
+
+## Development Workflow
+
+This project follows a feature-based Git workflow.
+
+```text
+Feature Branch
+      ↓
+Development
+      ↓
+Commit
+      ↓
+Push
+      ↓
+Merge into main
+      ↓
+Automatic Render Deployment
+```
+
+Each feature is developed independently before being merged into the `main` branch.
 
 ---
 
 ## Roadmap
 
-### Milestone 1
+### Phase 1 — Foundation
 
-- Project foundation
-- Artifact model
-- Database schema
-- UUID support
-- Eloquent fundamentals
-
-### Milestone 2
-
-- Museum API import engine
+- Project setup
+- Artifact domain model
 - Metadata normalization
-- Initial data import
+- Museum import engine
 
-### Milestone 3
+### Phase 2 — Discovery
 
-- Search and filtering
-- Public API endpoints
-- Resource responses
+- Search
+- Filtering
+- Sorting
+- Public REST API
 
-### Milestone 4
+### Phase 3 — User Experience
 
 - Dashboard
 - Artifact detail pages
-- Source browser
+- Collection browser
 
-### Milestone 5
+### Phase 4 — Production
 
 - Authentication
-- Queues
+- Queue workers
+- Redis caching
 - Performance optimization
-- Testing
-- Production improvements
+- Automated testing
 
 ---
 
-## Project Status
+## Documentation
 
-🚧 Active Development
+- 📖 [Deployment Guide](DEPLOYMENT.md)
+- 📝 [Project Changelog](CHANGELOG.md)
 
-This project is being developed incrementally as part of a deep dive into Laravel. Each milestone introduces new Laravel concepts while evolving the application into a production-ready platform.
+---
+
+## Project Vision
+
+The African Museum Artifacts API is the foundation of a larger ecosystem of cultural heritage software built with Laravel.
+
+Future projects include:
+
+- Curator Workspace
+- Digital Exhibition Builder
+- Cultural Collections Analytics
+
+Together, these projects demonstrate progressively deeper Laravel knowledge while solving real-world problems for museums, galleries, archives, and cultural institutions.
 
 ---
 
 ## License
 
-MIT License
+Licensed under the MIT License.

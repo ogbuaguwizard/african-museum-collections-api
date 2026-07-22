@@ -4,6 +4,7 @@ namespace App\Services\Importers;
 
 use App\DTOs\ArtifactDto;
 use App\Models\Artifact;
+use App\Models\ImportProgress;
 use App\Services\AfricanHeritageFilter;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,8 +13,10 @@ class MetApiImporter
 {
     protected string $baseUrl;
     protected string $source = 'met';
-    protected int $rateLimitDelay = 100000; // 0.1 second
+    protected int $rateLimitDelay = 500000; // 0.5 sec
     protected AfricanHeritageFilter $filter;
+    protected ?ImportProgress $progress = null;
+    protected int $africanDepartmentId = 5;
 
     public function __construct(AfricanHeritageFilter $filter)
     {
@@ -21,178 +24,337 @@ class MetApiImporter
         $this->baseUrl = config('services.met_api.base_url', 'https://collectionapi.metmuseum.org/public/collection/v1');
     }
 
-    public function import(?int $limit = null, ?int $departmentId = null, ?int $offset = 0, bool $skipFiltering = false): array
+    public function importAll(?int $batchSize = 50, ?int $limit = null, ?int $offset = 0): array
     {
+        $this->progress = ImportProgress::where('source', $this->source)
+            ->whereIn('status', ['pending', 'running'])
+            ->first();
+
+        if (!$this->progress) {
+            $objectIds = $this->searchAfricanObjects();
+            if (empty($objectIds)) {
+                Log::warning('No African objects found.');
+                return ['imported' => 0, 'skipped' => 0, 'failed' => 0];
+            }
+            $objectIds = array_values($objectIds);
+            $this->progress = ImportProgress::create([
+                'source' => $this->source,
+                'total_objects' => count($objectIds),
+                'processed_objects' => 0,
+                'imported_objects' => 0,
+                'skipped_objects' => 0,
+                'failed_objects' => 0,
+                'search_terms_used' => $this->filter->getSearchTerms(),
+                'processed_ids' => $objectIds,
+                'status' => 'pending',
+            ]);
+            Log::info("New import progress: " . count($objectIds) . " objects.");
+        }
+
+        if ($this->progress->status === 'completed') {
+            return $this->getStats();
+        }
+
+        $this->progress->markAsRunning();
+
         $stats = [
-            'imported' => 0,
-            'skipped' => 0,
-            'failed' => 0,
-            'skipped_by_filter' => 0,
+            'imported' => $this->progress->imported_objects,
+            'skipped' => $this->progress->skipped_objects,
+            'failed' => $this->progress->failed_objects,
         ];
 
-        // 1. SEARCH for African objects instead of fetching all
-        $objectIds = $this->searchAfricanObjects();
-        
-        if (empty($objectIds)) {
-            Log::warning('No African objects found in Met API.');
-            return $stats;
-        }
+        try {
+            $totalToProcess = $limit ?? $this->progress->total_objects;
+            $processed = $offset;
 
-        $total = count($objectIds);
-        $objectIds = array_slice($objectIds, $offset, $limit);
-
-        Log::info(sprintf("Found %d African objects. Processing %d objects.", $total, count($objectIds)));
-
-        // 2. Fetch each object
-        foreach ($objectIds as $index => $objectId) {
-            Log::debug(sprintf("Processing %d/%d: ID %d", $index + 1, count($objectIds), $objectId));
-
-            try {
-                $data = $this->fetchObject($objectId);
-                if (empty($data)) {
-                    $stats['skipped']++;
-                    continue;
+            while ($processed < $totalToProcess) {
+                $batch = $this->progress->getNextBatch($batchSize);
+                if (empty($batch)) {
+                    break;
                 }
 
-                // Double-check with the filter (optional, but keeps it safe)
-                if (!$skipFiltering) {
-                    $result = $this->filter->analyze($data);
-                    
-                    Log::debug(sprintf(
-                        "Object %d - African: %s | Confidence: %s | Reason: %s",
-                        $objectId,
-                        $result['is_african'] ? 'YES' : 'NO',
-                        $result['confidence'],
-                        $result['reason']
-                    ));
+                Log::info(sprintf("Batch: %d-%d of %d", $processed+1, min($processed+count($batch), $totalToProcess), $totalToProcess));
 
-                    if (!$result['is_african']) {
-                        $stats['skipped_by_filter']++;
-                        Log::debug(sprintf("Skipping object %d: %s", $objectId, $result['reason']));
-                        continue;
-                    }
+                $batchResults = $this->processBatch($batch);
+                $stats['imported'] += $batchResults['imported'];
+                $stats['skipped'] += $batchResults['skipped'];
+                $stats['failed'] += $batchResults['failed'];
+
+                $this->progress->increment('imported_objects', $batchResults['imported']);
+                $this->progress->increment('skipped_objects', $batchResults['skipped']);
+                $this->progress->increment('failed_objects', $batchResults['failed']);
+
+                $processed += count($batch);
+                $this->progress->markAsProcessed(count($batch));
+                $this->progress->refresh();
+
+                if ($limit && $stats['imported'] >= $limit) {
+                    Log::info("Reached limit of $limit imported.");
+                    break;
                 }
 
-                $dto = ArtifactDto::fromMetApi($data, $this->source);
-                $this->save($dto);
-                $stats['imported']++;
-
-            } catch (\Exception $e) {
-                Log::error(sprintf("Error importing object %d: %s", $objectId, $e->getMessage()));
-                $stats['failed']++;
+                if ($processed % ($batchSize * 10) == 0) {
+                    Log::info(sprintf("Progress: %.1f%% (%d/%d)", $this->getProgressPercentage(), $processed, $totalToProcess));
+                }
             }
 
-            usleep($this->rateLimitDelay);
-        }
+            if ($processed >= $this->progress->total_objects) {
+                $this->progress->markAsCompleted();
+                Log::info('Import completed.');
+            }
 
-        Log::info(sprintf(
-            "Import complete. Imported: %d, Skipped: %d, Skipped by filter: %d, Failed: %d",
-            $stats['imported'],
-            $stats['skipped'],
-            $stats['skipped_by_filter'],
-            $stats['failed']
-        ));
+        } catch (\Exception $e) {
+            $this->progress->markAsFailed($e->getMessage());
+            Log::error('Import failed: ' . $e->getMessage());
+            throw $e;
+        }
 
         return $stats;
     }
 
     /**
-     * Search Met API for African objects using African terms.
-     * This is the key method that makes it work!
+     * Process a batch – strict filters: must have images AND be public domain.
+     */
+    protected function processBatch(array $objectIds): array
+    {
+        $stats = ['imported' => 0, 'skipped' => 0, 'failed' => 0];
+        foreach ($objectIds as $id) {
+            try {
+                $data = $this->fetchObject($id);
+                if (!$data) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // ✅ REQUIRE: has images (primary or additional)
+                $hasPrimaryImage = !empty($data['primaryImage']);
+                $hasAdditionalImages = !empty($data['additionalImages']) && is_array($data['additionalImages']) && count($data['additionalImages']) > 0;
+                $hasAnyImage = $hasPrimaryImage || $hasAdditionalImages;
+
+                if (!$hasAnyImage) {
+                    Log::debug("Skipping $id: No images available.");
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // ✅ REQUIRE: must be public domain
+                $isPublicDomain = $data['isPublicDomain'] ?? false;
+                if (!$isPublicDomain) {
+                    Log::debug("Skipping $id: Not public domain.");
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // ✅ REQUIRE: must be African (scoring filter)
+                $result = $this->filter->analyze($data);
+                if (!$result['is_african']) {
+                    Log::debug("Skipping $id: " . $result['reason']);
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                $dto = ArtifactDto::fromMetApi($data, $this->source);
+                if ($this->save($dto)) {
+                    $stats['imported']++;
+                } else {
+                    $stats['skipped']++;
+                }
+            } catch (\Exception $e) {
+                Log::error("Error on $id: " . $e->getMessage());
+                $stats['failed']++;
+            }
+            usleep($this->rateLimitDelay);
+        }
+        return $stats;
+    }
+
+    /**
+     * Multi-strategy search for African artifacts – always require images.
      */
     protected function searchAfricanObjects(): array
     {
         $allIds = [];
-        $searchTerms = array_merge(
-            $this->filter->getHighConfidenceTerms(),
-            array_slice($this->filter->getGeneralTerms(), 0, 20) // Limit general terms to avoid too many requests
-        );
 
-        Log::info(sprintf("Searching Met API with %d African terms...", count($searchTerms)));
+        // STRATEGY 1: Direct department search (most reliable)
+        $this->searchDepartment($allIds);
 
-        foreach ($searchTerms as $term) {
-            // Skip very short terms (like "Benin" is fine, but "Ga" might match too many)
-            if (strlen($term) < 3) {
-                continue;
-            }
+        // STRATEGY 2: Search with artistOrCulture parameter
+        $this->searchByCulture($allIds);
 
-            $ids = $this->search($term);
-            $allIds = array_merge($allIds, $ids);
-            
-            Log::debug(sprintf("Term '%s' found %d objects", $term, count($ids)));
-            
-            // Rate limiting - Met allows 80/sec, we're being conservative
-            usleep(50000); // 50ms
-        }
+        // STRATEGY 3: Search with geoLocation parameter
+        $this->searchByGeoLocation($allIds);
 
-        // Remove duplicates
+        // Deduplicate
         $uniqueIds = array_unique($allIds);
-        
-        Log::info(sprintf("Found %d unique object IDs from %d search terms.", count($uniqueIds), count($searchTerms)));
+        sort($uniqueIds);
 
-        return $uniqueIds;
+        // Remove already imported
+        $existing = Artifact::where('source', $this->source)->pluck('source_id')->map(fn($id) => (int)$id)->toArray();
+        $uniqueIds = array_diff($uniqueIds, $existing);
+
+        Log::info("Found " . count($uniqueIds) . " unique African objects after combining strategies.");
+
+        return array_values($uniqueIds);
     }
 
     /**
-     * Perform a single search query on the Met API.
+     * STRATEGY 1: Search within the African Art department.
      */
-    protected function search(string $query): array
+    protected function searchDepartment(array &$allIds): void
     {
-        try {
-            $response = Http::timeout(10)->get("{$this->baseUrl}/search", [
-                'q' => $query,
-                'hasImages' => 'true', // Only get objects with images
-            ]);
+        $artTerms = ['mask', 'figure', 'statue', 'sculpture', 'textile', 'ceramic', 'beadwork', 'vessel', 'weapon', 'staff', 'throne'];
 
-            if (!$response->successful()) {
-                Log::warning(sprintf("Met API search failed for query: %s", $query));
-                return [];
+        foreach ($artTerms as $term) {
+            $params = [
+                'q' => $term,
+                'departmentId' => $this->africanDepartmentId,
+                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+            ];
+            $ids = $this->searchWithParams($params);
+            $allIds = array_merge($allIds, $ids);
+            Log::debug("Department {$this->africanDepartmentId} + q='$term' found " . count($ids) . " objects.");
+            usleep(50000);
+        }
+
+        $params = [
+            'q' => 'art',
+            'departmentId' => $this->africanDepartmentId,
+            'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+        ];
+        $ids = $this->searchWithParams($params);
+        $allIds = array_merge($allIds, $ids);
+        Log::debug("Department {$this->africanDepartmentId} + q='art' found " . count($ids) . " objects.");
+        usleep(50000);
+    }
+
+    /**
+     * STRATEGY 2: Search with artistOrCulture=true using high-confidence terms.
+     */
+    protected function searchByCulture(array &$allIds): void
+    {
+        $cultureTerms = [
+            'Yoruba', 'Benin', 'Igbo', 'Akan', 'Kongo', 'Zulu', 'Asante',
+            'Dahomey', 'Nok', 'Ife', 'Mali', 'Songhai', 'Kanem', 'Bornu',
+            'Nubia', 'Kush', 'Axum', 'Great Zimbabwe', 'Luba', 'Lunda',
+            'Chokwe', 'Fon', 'Dogon', 'Tuareg', 'Berber', 'Swahili',
+            'Ashanti', 'Oyo', 'Ile-Ife', 'Meroe', 'Kerma'
+        ];
+
+        foreach ($cultureTerms as $term) {
+            $params = [
+                'q' => $term,
+                'artistOrCulture' => 'true',
+                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+            ];
+            $ids = $this->searchWithParams($params);
+            $allIds = array_merge($allIds, $ids);
+            Log::debug("artistOrCulture + '$term' found " . count($ids) . " objects.");
+            usleep(50000);
+        }
+    }
+
+    /**
+     * STRATEGY 3: Search with geoLocation for African countries.
+     */
+    protected function searchByGeoLocation(array &$allIds): void
+    {
+        $africanCountries = [
+            'Nigeria', 'Ghana', 'Benin', 'Togo', 'Mali', 'Burkina Faso',
+            'Senegal', 'Cameroon', 'Ethiopia', 'Kenya', 'Tanzania',
+            'Zimbabwe', 'South Africa', 'Namibia', 'Botswana', 'Mozambique',
+            'Angola', 'Sudan', 'Egypt', 'Morocco', 'Algeria', 'Tunisia',
+            'Libya', 'Congo', 'Ivory Coast', 'Guinea', 'Sierra Leone',
+            'Liberia', 'Niger', 'Chad', 'Gabon', 'Rwanda', 'Burundi',
+            'Malawi', 'Zambia', 'Lesotho', 'Madagascar', 'Somalia'
+        ];
+
+        $artTerms = ['figure', 'mask', 'sculpture', 'textile', 'vessel'];
+
+        foreach ($africanCountries as $country) {
+            foreach ($artTerms as $artTerm) {
+                $params = [
+                    'q' => $artTerm,
+                    'geoLocation' => $country,
+                    'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+                ];
+                $ids = $this->searchWithParams($params);
+                $allIds = array_merge($allIds, $ids);
+                usleep(50000);
             }
 
-            return $response->json('objectIDs') ?? [];
+            $params = [
+                'q' => $country,
+                'geoLocation' => $country,
+                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+            ];
+            $ids = $this->searchWithParams($params);
+            $allIds = array_merge($allIds, $ids);
+            usleep(50000);
+        }
+    }
 
+    /**
+     * Helper to perform search with arbitrary parameters.
+     */
+    protected function searchWithParams(array $params): array
+    {
+        try {
+            $response = Http::timeout(10)->get("{$this->baseUrl}/search", $params);
+            if ($response->failed()) {
+                Log::warning("Search failed with params: " . json_encode($params) . " - status: " . $response->status());
+                return [];
+            }
+            $data = $response->json();
+            return $data['objectIDs'] ?? [];
         } catch (\Exception $e) {
-            Log::warning(sprintf("Met API search exception for query '%s': %s", $query, $e->getMessage()));
+            Log::warning("Search exception: " . $e->getMessage() . " with params: " . json_encode($params));
             return [];
         }
     }
 
-    /**
-     * Fetch a single object from Met API.
-     */
-    protected function fetchObject(int $objectId): ?array
+    protected function fetchObject(int $id): ?array
     {
         try {
-            $url = $this->baseUrl . '/objects/' . $objectId;
-            $response = Http::timeout(10)->get($url);
-
-            if ($response->failed()) {
-                Log::warning(sprintf("Failed to fetch object %d: %d", $objectId, $response->status()));
-                return null;
-            }
-
+            $response = Http::timeout(10)->get("{$this->baseUrl}/objects/{$id}");
+            if ($response->failed()) return null;
             return $response->json();
-
         } catch (\Exception $e) {
-            Log::warning(sprintf("Failed to fetch object %d: %s", $objectId, $e->getMessage()));
             return null;
         }
     }
 
-    /**
-     * Save DTO to database (skip duplicates).
-     */
-    protected function save(ArtifactDto $dto): void
+    protected function save(ArtifactDto $dto): bool
     {
-        $exists = Artifact::where('source', $dto->source)
-                          ->where('source_id', $dto->source_id)
-                          ->exists();
-
-        if ($exists) {
-            Log::info(sprintf("Skipping duplicate: %s", $dto->source_id));
-            return;
+        if (Artifact::where('source', $dto->source)->where('source_id', $dto->source_id)->exists()) {
+            return false;
         }
-
         Artifact::create($dto->toArray());
+        return true;
+    }
+
+    public function getStats(): array
+    {
+        if (!$this->progress) {
+            $this->progress = ImportProgress::where('source', $this->source)->orderBy('id', 'desc')->first();
+        }
+        if (!$this->progress) {
+            return ['status' => 'no_import', 'total' => 0, 'processed' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        }
+        return [
+            'status' => $this->progress->status,
+            'total' => $this->progress->total_objects,
+            'processed' => $this->progress->processed_objects,
+            'imported' => $this->progress->imported_objects,
+            'skipped' => $this->progress->skipped_objects,
+            'failed' => $this->progress->failed_objects,
+            'started_at' => $this->progress->started_at,
+            'completed_at' => $this->progress->completed_at,
+        ];
+    }
+
+    public function getProgressPercentage(): float
+    {
+        if (!$this->progress || $this->progress->total_objects === 0) return 0;
+        return ($this->progress->processed_objects / $this->progress->total_objects) * 100;
     }
 }

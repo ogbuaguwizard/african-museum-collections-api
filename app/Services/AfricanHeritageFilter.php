@@ -2,25 +2,20 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
-
 class AfricanHeritageFilter
 {
-    /**
-     * High-confidence African terms (countries, cultures, dynasties, kingdoms)
-     */
+    // High-confidence African terms for scoring
     protected array $highConfidenceTerms = [
         // Countries
         'Nigeria', 'Ghana', 'Benin', 'Togo', 'Mali', 'Burkina Faso',
         'Senegal', 'Cameroon', 'Ethiopia', 'Kenya', 'Uganda', 'Tanzania',
         'Zimbabwe', 'South Africa', 'Namibia', 'Botswana', 'Mozambique',
         'Angola', 'Sudan', 'Egypt', 'Morocco', 'Algeria', 'Tunisia',
-        'Libya', 'Congo', 'Ivory Coast', 'Côte d\'Ivoire', 'Guinea',
-        'Sierra Leone', 'Liberia', 'Niger', 'Chad', 'Central African Republic',
-        'Gabon', 'Equatorial Guinea', 'Rwanda', 'Burundi', 'Malawi',
-        'Zambia', 'Lesotho', 'Eswatini', 'Madagascar', 'South Sudan',
-        'Eritrea', 'Djibouti', 'Somalia', 'Western Sahara',
-
+        'Libya', 'Congo', 'Ivory Coast', 'Guinea', 'Sierra Leone',
+        'Liberia', 'Niger', 'Chad', 'Central African Republic', 'Gabon',
+        'Equatorial Guinea', 'Rwanda', 'Burundi', 'Malawi', 'Zambia',
+        'Lesotho', 'Eswatini', 'Madagascar', 'South Sudan', 'Eritrea',
+        'Djibouti', 'Somalia',
         // Empires & Kingdoms
         'Kingdom of Benin', 'Benin Kingdom', 'Oyo', 'Ife', 'Ile-Ife',
         'Asante', 'Ashanti', 'Dahomey', 'Mali Empire', 'Songhai Empire',
@@ -28,143 +23,105 @@ class AfricanHeritageFilter
         'Kerma', 'Meroe', 'Axum', 'Aksum', 'Great Zimbabwe', 'Mutapa',
         'Mapungubwe', 'Kongo Kingdom', 'Luba Kingdom', 'Lunda Kingdom',
         'Buganda', 'Ghana Empire',
-
         // Ethnic Groups
         'Yoruba', 'Igbo', 'Hausa', 'Fulani', 'Fulbe', 'Fula',
-        'Akan', 'Ashanti', 'Ewe', 'Ga', 'Fon', 'Bambara', 'Mandinka',
-        'Mande', 'Wolof', 'Serer', 'Dogon', 'Tuareg', 'Berber',
-        'Amazigh', 'Kanuri', 'Tiv', 'Nupe', 'Edo', 'Urhobo', 'Ijaw',
-        'Ibibio', 'Efik', 'Idoma', 'Kongo', 'Luba', 'Lunda', 'Chokwe',
-        'Zulu', 'Xhosa', 'Sotho', 'Tswana', 'Ndebele', 'Shona', 'Venda',
+        'Akan', 'Ewe', 'Ga', 'Fon', 'Bambara', 'Mandinka', 'Mande',
+        'Wolof', 'Serer', 'Dogon', 'Tuareg', 'Berber', 'Amazigh',
+        'Kanuri', 'Tiv', 'Nupe', 'Edo', 'Urhobo', 'Ijaw', 'Ibibio',
+        'Efik', 'Idoma', 'Kongo', 'Luba', 'Lunda', 'Chokwe', 'Zulu',
+        'Xhosa', 'Sotho', 'Tswana', 'Ndebele', 'Shona', 'Venda',
         'Maasai', 'Kikuyu', 'Luo', 'Meru', 'Amhara', 'Oromo', 'Tigray',
         'Somali', 'Afar', 'Beja', 'Nubian', 'Swahili',
-
         // Cultures
-        'Nok', 'Benin', 'Ife', 'Kerma', 'Meroe',
+        'Nok', 'Ife', 'Kerma', 'Meroe',
     ];
 
-    /**
-     * General African terms (lower confidence)
-     */
+    // General terms for scoring (lower weight)
     protected array $generalTerms = [
-        'Africa', 'African', 'Sub-Saharan Africa', 'North Africa',
-        'West Africa', 'East Africa', 'Central Africa', 'Southern Africa',
-        'Horn of Africa', 'Sahel', 'Maghreb', 'Nile Valley', 'Nile',
-        'Sahara', 'Timbuktu', 'Djenné', 'Lalibela', 'Olduvai',
-
-        // Art & Materials
-        'African mask', 'Mask', 'Power figure', 'Nkisi',
-        'Fetish figure', 'Terracotta', 'Bronze', 'Brass', 'Ivory',
-        'Beadwork', 'Textile', 'Kente', 'Mud cloth', 'Bark cloth',
-
-        // Religions & Traditions
-        'Vodun', 'Vodou', 'Ifa', 'Orisha', 'Oshun', 'Shango',
-        'Coptic', 'Ethiopian Orthodox', 'Ancestor worship',
-
-        // Languages
-        'Swahili', 'Ge\'ez', 'Amharic', 'Hausa', 'Yoruba', 'Igbo',
-        'Tamasheq', 'Tamazight', 'Wolof', 'Bambara', 'Lingala', 'Kikongo',
-        'Shona', 'Zulu',
+        'Africa', 'African', 'Sub-Saharan', 'Sahel', 'Maghreb', 'Nile Valley',
+        'Mask', 'Power figure', 'Nkisi', 'Fetish figure', 'Terracotta',
+        'Bronze', 'Brass', 'Ivory', 'Beadwork', 'Textile', 'Kente',
+        'Vodun', 'Vodou', 'Ifa', 'Orisha', 'Ancestor worship',
+        'Swahili', 'Ge\'ez', 'Amharic',
     ];
 
+    protected int $minScore = 100;
+
     /**
-     * Determine if an artifact is of African heritage.
-     *
-     * @param array $data The raw API response data
-     * @return array ['is_african' => bool, 'confidence' => 'high'|'medium'|'low', 'matches' => array]
+     * Analyze artifact using scoring system.
+     * No blacklists – purely positive scoring.
      */
     public function analyze(array $data): array
     {
+        $text = $this->buildSearchableText($data);
+        $score = 0;
         $matches = [];
-        $highConfidenceMatches = [];
-        $searchableText = $this->buildSearchableText($data);
+        $highMatches = [];
 
-        // Check high-confidence terms
+        // High-confidence terms: +100 each
         foreach ($this->highConfidenceTerms as $term) {
-            if (stripos($searchableText, $term) !== false) {
-                $highConfidenceMatches[] = $term;
+            if (stripos($text, $term) !== false) {
+                $score += 100;
+                $highMatches[] = $term;
                 $matches[] = $term;
             }
         }
 
-        // Check general terms
+        // General terms: +50 each
         foreach ($this->generalTerms as $term) {
-            if (stripos($searchableText, $term) !== false) {
+            if (stripos($text, $term) !== false) {
+                $score += 50;
                 $matches[] = $term;
             }
         }
 
-        // Remove duplicates
         $matches = array_unique($matches);
-        $highConfidenceMatches = array_unique($highConfidenceMatches);
+        $highMatches = array_unique($highMatches);
 
-        // Determine if African
-        $hasHighConfidenceMatch = count($highConfidenceMatches) > 0;
-        $hasGeneralMatch = count($matches) > 0;
-        $hasCultureField = !empty($data['culture']) && $this->isLikelyAfrican($data['culture']);
-        $hasDynastyField = !empty($data['dynasty']) && $this->isLikelyAfrican($data['dynasty']);
-        $hasPeriodField = !empty($data['period']) && $this->isLikelyAfrican($data['period']);
-        $hasCountryField = !empty($data['country']) && $this->isLikelyAfricanCountry($data['country']);
-        $hasRegionField = !empty($data['region']) && $this->isLikelyAfrican($data['region']);
+        // Check official African fields
+        $hasAfricanCulture = $this->isAfricanCulture($data['culture'] ?? null);
+        $hasAfricanDynasty = $this->isAfricanDynasty($data['dynasty'] ?? null);
+        $hasAfricanCountry = $this->isAfricanCountry($data['country'] ?? null);
+        $hasAfricanRegion = $this->isAfricanRegion($data['region'] ?? null);
+        $officialAfrican = $hasAfricanCulture || $hasAfricanDynasty || $hasAfricanCountry || $hasAfricanRegion;
 
         // Decision logic
+        $hasHigh = count($highMatches) > 0;
         $isAfrican = false;
         $confidence = 'low';
         $reason = '';
 
-        if ($hasHighConfidenceMatch) {
+        if ($hasHigh) {
             $isAfrican = true;
             $confidence = 'high';
-            $reason = 'High-confidence match: ' . implode(', ', array_slice($highConfidenceMatches, 0, 3));
-        } elseif ($hasCountryField && ($hasCultureField || $hasDynastyField || $hasPeriodField)) {
+            $reason = 'High-confidence match: ' . implode(', ', array_slice($highMatches, 0, 3));
+        } elseif ($officialAfrican && $score >= $this->minScore) {
             $isAfrican = true;
             $confidence = 'high';
-            $reason = "African country ({$data['country']}) with cultural context";
-        } elseif ($hasCultureField && $hasGeneralMatch) {
+            $reason = "African field with score $score";
+        } elseif ($officialAfrican && count($matches) >= 2) {
             $isAfrican = true;
             $confidence = 'medium';
-            $reason = "African culture ({$data['culture']}) with supporting terms";
-        } elseif ($hasDynastyField && $hasGeneralMatch) {
+            $reason = "African field with general terms";
+        } elseif ($score >= $this->minScore + 50) {
             $isAfrican = true;
             $confidence = 'medium';
-            $reason = "African dynasty ({$data['dynasty']}) with supporting terms";
-        } elseif ($hasCountryField && !empty($data['title']) && $this->isLikelyAfrican($data['title'])) {
-            $isAfrican = true;
-            $confidence = 'medium';
-            $reason = "African country ({$data['country']}) and title contains African term";
-        } elseif ($hasGeneralMatch && ($hasCultureField || $hasDynastyField || $hasPeriodField || $hasRegionField)) {
-            $isAfrican = true;
-            $confidence = 'medium';
-            $reason = 'General African terms with cultural/geographic context';
-        } elseif ($hasGeneralMatch && count($matches) >= 3) {
-            $isAfrican = true;
-            $confidence = 'medium';
-            $reason = 'Multiple general African terms found';
-        } elseif ($hasGeneralMatch && !empty($data['objectName']) && $this->isLikelyAfrican($data['objectName'])) {
-            $isAfrican = true;
-            $confidence = 'low';
-            $reason = 'African object name with general terms';
-        } elseif ($hasGeneralMatch) {
-            $isAfrican = false;
-            $confidence = 'low';
-            $reason = 'General terms but insufficient cultural/geographic context';
+            $reason = "Very high score ($score)";
         } else {
-            $reason = 'No African terms found';
+            $reason = "Score $score, official field: " . ($officialAfrican ? 'yes' : 'no');
         }
 
         return [
             'is_african' => $isAfrican,
             'confidence' => $confidence,
+            'score' => $score,
             'matches' => $matches,
-            'high_confidence_matches' => $highConfidenceMatches,
+            'high_confidence_matches' => $highMatches,
             'reason' => $reason,
         ];
     }
 
-    /**
-     * Build a searchable text string from the artifact data.
-     */
-    protected function buildSearchableText(array $data): string
+    private function buildSearchableText(array $data): string
     {
         $fields = [
             $data['title'] ?? '',
@@ -181,66 +138,52 @@ class AfricanHeritageFilter
             $data['department'] ?? '',
             $data['reign'] ?? '',
             collect($data['tags'] ?? [])->pluck('term')->implode(' '),
-            $data['objectWikidata_URL'] ?? '',
-            $data['objectURL'] ?? '',
         ];
-
         return implode(' ', array_filter($fields));
     }
 
-    /**
-     * Check if a string is likely African (contains African terms).
-     */
-    protected function isLikelyAfrican(string $text): bool
+    private function isAfricanCulture(?string $culture): bool
     {
-        $allTerms = array_merge($this->highConfidenceTerms, $this->generalTerms);
-        foreach ($allTerms as $term) {
-            if (stripos($text, $term) !== false) {
-                return true;
-            }
+        if (empty($culture)) return false;
+        $african = ['Yoruba', 'Igbo', 'Hausa', 'Fulani', 'Akan', 'Fon', 'Dogon', 'Tuareg', 'Zulu', 'Xhosa', 'Shona', 'Maasai', 'Kikuyu', 'Luo', 'Amhara', 'Oromo', 'Tigray', 'Somali', 'Nubian', 'Swahili', 'Kongo', 'Luba', 'Lunda', 'Chokwe', 'Nok', 'Benin', 'Ife', 'Kerma', 'Meroe', 'Bantu', 'Nilotic', 'Cushitic', 'Khoisan'];
+        foreach ($african as $term) {
+            if (stripos($culture, $term) !== false) return true;
         }
         return false;
     }
 
-    /**
-     * Check if a country name is likely an African country.
-     */
-    protected function isLikelyAfricanCountry(string $country): bool
+    private function isAfricanDynasty(?string $dynasty): bool
     {
-        $africanCountries = [
-            'Nigeria', 'Ghana', 'Benin', 'Togo', 'Mali', 'Burkina Faso',
-            'Senegal', 'Cameroon', 'Ethiopia', 'Kenya', 'Uganda', 'Tanzania',
-            'Zimbabwe', 'South Africa', 'Namibia', 'Botswana', 'Mozambique',
-            'Angola', 'Sudan', 'Egypt', 'Morocco', 'Algeria', 'Tunisia',
-            'Libya', 'Congo', 'Ivory Coast', 'Côte d\'Ivoire', 'Guinea',
-            'Sierra Leone', 'Liberia', 'Niger', 'Chad', 'Central African Republic',
-            'Gabon', 'Equatorial Guinea', 'Rwanda', 'Burundi', 'Malawi',
-            'Zambia', 'Lesotho', 'Eswatini', 'Madagascar', 'South Sudan',
-            'Eritrea', 'Djibouti', 'Somalia', 'Western Sahara',
-            'Nigeria', 'Ghana', 'Benin', 'Togo', 'Mali',
-        ];
-
-        foreach ($africanCountries as $africanCountry) {
-            if (stripos($country, $africanCountry) !== false) {
-                return true;
-            }
+        if (empty($dynasty)) return false;
+        $african = ['Benin', 'Oyo', 'Ife', 'Asante', 'Dahomey', 'Songhai', 'Mali', 'Kanem', 'Bornu', 'Kush', 'Nubia', 'Axum', 'Aksum', 'Great Zimbabwe', 'Kongo', 'Luba', 'Lunda', 'Buganda', 'Ghana', 'Wagadou'];
+        foreach ($african as $term) {
+            if (stripos($dynasty, $term) !== false) return true;
         }
         return false;
     }
 
-    /**
-     * Get high-confidence terms for API searching.
-    */
-    public function getHighConfidenceTerms(): array
+    private function isAfricanCountry(?string $country): bool
+    {
+        if (empty($country)) return false;
+        $countries = ['Nigeria', 'Ghana', 'Benin', 'Togo', 'Mali', 'Burkina Faso', 'Senegal', 'Cameroon', 'Ethiopia', 'Kenya', 'Uganda', 'Tanzania', 'Zimbabwe', 'South Africa', 'Namibia', 'Botswana', 'Mozambique', 'Angola', 'Sudan', 'Egypt', 'Morocco', 'Algeria', 'Tunisia', 'Libya', 'Congo', "Côte d'Ivoire", 'Guinea', 'Sierra Leone', 'Liberia', 'Niger', 'Chad', 'Central African Republic', 'Gabon', 'Equatorial Guinea', 'Rwanda', 'Burundi', 'Malawi', 'Zambia', 'Lesotho', 'Eswatini', 'Madagascar', 'South Sudan', 'Eritrea', 'Djibouti', 'Somalia', 'Western Sahara', 'Cabo Verde', 'São Tomé and Príncipe', 'Comoros', 'Mauritius', 'Seychelles'];
+        foreach ($countries as $c) {
+            if (stripos($country, $c) !== false) return true;
+        }
+        return false;
+    }
+
+    private function isAfricanRegion(?string $region): bool
+    {
+        if (empty($region)) return false;
+        $african = ['West Africa', 'East Africa', 'Central Africa', 'Southern Africa', 'North Africa', 'Sub-Saharan Africa', 'Horn of Africa', 'Sahel', 'Maghreb', 'Nile Valley', 'Great Lakes', 'Congo Basin', 'Zambezi', 'Niger Delta', 'Guinea Coast', 'Swahili Coast', 'Gold Coast', 'Slave Coast', 'Pepper Coast'];
+        foreach ($african as $term) {
+            if (stripos($region, $term) !== false) return true;
+        }
+        return false;
+    }
+
+    public function getSearchTerms(): array
     {
         return $this->highConfidenceTerms;
-    }
-
-    /**
-     * Get general terms for API searching.
-     */
-    public function getGeneralTerms(): array
-    {
-        return $this->generalTerms;
     }
 }
