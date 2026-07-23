@@ -24,9 +24,6 @@ class MetApiImporter
         $this->baseUrl = config('services.met_api.base_url', 'https://collectionapi.metmuseum.org/public/collection/v1');
     }
 
-    /**
-     * Write a message to stdout so it's captured by the command output.
-     */
     protected function writeToStdout(string $message): void
     {
         fwrite(STDOUT, $message . PHP_EOL);
@@ -56,7 +53,6 @@ class MetApiImporter
                 'processed_ids' => $objectIds,
                 'status' => 'pending',
             ]);
-            Log::info("New import progress: " . count($objectIds) . " objects.");
             $this->writeToStdout("New import progress: " . count($objectIds) . " objects.");
         }
 
@@ -110,23 +106,18 @@ class MetApiImporter
             if ($processed >= $this->progress->total_objects) {
                 $this->progress->markAsCompleted();
                 $this->writeToStdout('Import completed.');
-                Log::info('Import completed.');
             }
 
         } catch (\Exception $e) {
             $this->progress->markAsFailed($e->getMessage());
-            Log::error('Import failed: ' . $e->getMessage());
             $this->writeToStdout('Import failed: ' . $e->getMessage());
+            Log::error('Import failed: ' . $e->getMessage());
             throw $e;
         }
 
         return $stats;
     }
 
-    /**
-     * Process a batch – strict filters: must have images AND be public domain.
-     * All skip reasons are written to stdout.
-     */
     protected function processBatch(array $objectIds): array
     {
         $stats = ['imported' => 0, 'skipped' => 0, 'failed' => 0];
@@ -139,7 +130,7 @@ class MetApiImporter
                     continue;
                 }
 
-                // ✅ REQUIRE: has images (primary or additional)
+                // REQUIRE: has images (primary or additional)
                 $hasPrimaryImage = !empty($data['primaryImage']);
                 $hasAdditionalImages = !empty($data['additionalImages']) && is_array($data['additionalImages']) && count($data['additionalImages']) > 0;
                 $hasAnyImage = $hasPrimaryImage || $hasAdditionalImages;
@@ -150,7 +141,7 @@ class MetApiImporter
                     continue;
                 }
 
-                // ✅ REQUIRE: must be public domain
+                // REQUIRE: must be public domain
                 $isPublicDomain = $data['isPublicDomain'] ?? false;
                 if (!$isPublicDomain) {
                     $this->writeToStdout("SKIP $id: Not public domain.");
@@ -158,7 +149,7 @@ class MetApiImporter
                     continue;
                 }
 
-                // ✅ REQUIRE: must be African (scoring filter)
+                // REQUIRE: must be African (scoring filter)
                 $result = $this->filter->analyze($data);
                 if (!$result['is_african']) {
                     $this->writeToStdout("SKIP $id: African filter failed. Score: {$result['score']}, Reason: {$result['reason']}");
@@ -171,7 +162,7 @@ class MetApiImporter
                     $stats['imported']++;
                     $this->writeToStdout("IMPORT $id: Success.");
                 } else {
-                    $this->writeToStdout("SKIP $id: Duplicate (already exists).");
+                    $this->writeToStdout("SKIP $id: Duplicate.");
                     $stats['skipped']++;
                 }
             } catch (\Exception $e) {
@@ -185,66 +176,64 @@ class MetApiImporter
     }
 
     /**
-     * Multi-strategy search for African artifacts – always require images.
+     * Fetch an object with detailed error logging.
      */
+    protected function fetchObject(int $id): ?array
+    {
+        try {
+            $response = Http::timeout(15)->get("{$this->baseUrl}/objects/{$id}");
+            
+            if ($response->failed()) {
+                $status = $response->status();
+                $body = substr($response->body(), 0, 200);
+                $this->writeToStdout("ERROR fetching $id: HTTP $status - $body");
+                return null;
+            }
+            
+            return $response->json();
+            
+        } catch (\Exception $e) {
+            $this->writeToStdout("EXCEPTION fetching $id: " . $e->getMessage());
+            return null;
+        }
+    }
+
     protected function searchAfricanObjects(): array
     {
         $allIds = [];
 
-        // STRATEGY 1: Direct department search (most reliable)
         $this->searchDepartment($allIds);
-
-        // STRATEGY 2: Search with artistOrCulture parameter
         $this->searchByCulture($allIds);
-
-        // STRATEGY 3: Search with geoLocation parameter
         $this->searchByGeoLocation($allIds);
 
-        // Deduplicate
         $uniqueIds = array_unique($allIds);
         sort($uniqueIds);
 
-        // Remove already imported
         $existing = Artifact::where('source', $this->source)->pluck('source_id')->map(fn($id) => (int)$id)->toArray();
         $uniqueIds = array_diff($uniqueIds, $existing);
 
         $this->writeToStdout("Found " . count($uniqueIds) . " unique African objects after combining strategies.");
-        Log::info("Found " . count($uniqueIds) . " unique African objects after combining strategies.");
 
         return array_values($uniqueIds);
     }
 
-    /**
-     * STRATEGY 1: Search within the African Art department.
-     */
+    // ... (searchDepartment, searchByCulture, searchByGeoLocation, searchWithParams unchanged) ...
+
     protected function searchDepartment(array &$allIds): void
     {
         $artTerms = ['mask', 'figure', 'statue', 'sculpture', 'textile', 'ceramic', 'beadwork', 'vessel', 'weapon', 'staff', 'throne'];
-
         foreach ($artTerms as $term) {
-            $params = [
-                'q' => $term,
-                'departmentId' => $this->africanDepartmentId,
-                'hasImages' => 'true',
-            ];
+            $params = ['q' => $term, 'departmentId' => $this->africanDepartmentId, 'hasImages' => 'true'];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
             usleep(50000);
         }
-
-        $params = [
-            'q' => 'art',
-            'departmentId' => $this->africanDepartmentId,
-            'hasImages' => 'true',
-        ];
+        $params = ['q' => 'art', 'departmentId' => $this->africanDepartmentId, 'hasImages' => 'true'];
         $ids = $this->searchWithParams($params);
         $allIds = array_merge($allIds, $ids);
         usleep(50000);
     }
 
-    /**
-     * STRATEGY 2: Search with artistOrCulture=true using high-confidence terms.
-     */
     protected function searchByCulture(array &$allIds): void
     {
         $cultureTerms = [
@@ -254,22 +243,14 @@ class MetApiImporter
             'Chokwe', 'Fon', 'Dogon', 'Tuareg', 'Berber', 'Swahili',
             'Ashanti', 'Oyo', 'Ile-Ife', 'Meroe', 'Kerma'
         ];
-
         foreach ($cultureTerms as $term) {
-            $params = [
-                'q' => $term,
-                'artistOrCulture' => 'true',
-                'hasImages' => 'true',
-            ];
+            $params = ['q' => $term, 'artistOrCulture' => 'true', 'hasImages' => 'true'];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
             usleep(50000);
         }
     }
 
-    /**
-     * STRATEGY 3: Search with geoLocation for African countries.
-     */
     protected function searchByGeoLocation(array &$allIds): void
     {
         $africanCountries = [
@@ -281,59 +262,33 @@ class MetApiImporter
             'Liberia', 'Niger', 'Chad', 'Gabon', 'Rwanda', 'Burundi',
             'Malawi', 'Zambia', 'Lesotho', 'Madagascar', 'Somalia'
         ];
-
         $artTerms = ['figure', 'mask', 'sculpture', 'textile', 'vessel'];
-
         foreach ($africanCountries as $country) {
             foreach ($artTerms as $artTerm) {
-                $params = [
-                    'q' => $artTerm,
-                    'geoLocation' => $country,
-                    'hasImages' => 'true',
-                ];
+                $params = ['q' => $artTerm, 'geoLocation' => $country, 'hasImages' => 'true'];
                 $ids = $this->searchWithParams($params);
                 $allIds = array_merge($allIds, $ids);
                 usleep(50000);
             }
-
-            $params = [
-                'q' => $country,
-                'geoLocation' => $country,
-                'hasImages' => 'true',
-            ];
+            $params = ['q' => $country, 'geoLocation' => $country, 'hasImages' => 'true'];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
             usleep(50000);
         }
     }
 
-    /**
-     * Helper to perform search with arbitrary parameters.
-     */
     protected function searchWithParams(array $params): array
     {
         try {
             $response = Http::timeout(10)->get("{$this->baseUrl}/search", $params);
             if ($response->failed()) {
-                Log::warning("Search failed with params: " . json_encode($params) . " - status: " . $response->status());
+                Log::warning("Search failed: " . json_encode($params) . " - status: " . $response->status());
                 return [];
             }
-            $data = $response->json();
-            return $data['objectIDs'] ?? [];
+            return $response->json('objectIDs') ?? [];
         } catch (\Exception $e) {
-            Log::warning("Search exception: " . $e->getMessage() . " with params: " . json_encode($params));
+            Log::warning("Search exception: " . $e->getMessage());
             return [];
-        }
-    }
-
-    protected function fetchObject(int $id): ?array
-    {
-        try {
-            $response = Http::timeout(10)->get("{$this->baseUrl}/objects/{$id}");
-            if ($response->failed()) return null;
-            return $response->json();
-        } catch (\Exception $e) {
-            return null;
         }
     }
 
