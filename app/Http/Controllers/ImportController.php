@@ -41,7 +41,11 @@ class ImportController extends Controller
         
         // 🔥 Run synchronously for debugging (remove &)
         $command = sprintf(
-            'cd %s && php %s import:met --limit=%d --offset=%d > %s 2>&1',
+            'echo "--- Import started at %s (limit=%d, offset=%d) ---" >> %s && cd %s && php %s import:met --limit=%d --offset=%d >> %s 2>&1',
+            date('Y-m-d H:i:s'),
+            $limit,
+            $offset,
+            $logPath,
             base_path(),
             $artisanPath,
             $limit,

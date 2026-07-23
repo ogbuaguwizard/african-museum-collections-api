@@ -24,6 +24,14 @@ class MetApiImporter
         $this->baseUrl = config('services.met_api.base_url', 'https://collectionapi.metmuseum.org/public/collection/v1');
     }
 
+    /**
+     * Write a message to stdout so it's captured by the command output.
+     */
+    protected function writeToStdout(string $message): void
+    {
+        fwrite(STDOUT, $message . PHP_EOL);
+    }
+
     public function importAll(?int $batchSize = 50, ?int $limit = null, ?int $offset = 0): array
     {
         $this->progress = ImportProgress::where('source', $this->source)
@@ -33,7 +41,7 @@ class MetApiImporter
         if (!$this->progress) {
             $objectIds = $this->searchAfricanObjects();
             if (empty($objectIds)) {
-                Log::warning('No African objects found.');
+                $this->writeToStdout('No African objects found.');
                 return ['imported' => 0, 'skipped' => 0, 'failed' => 0];
             }
             $objectIds = array_values($objectIds);
@@ -49,6 +57,7 @@ class MetApiImporter
                 'status' => 'pending',
             ]);
             Log::info("New import progress: " . count($objectIds) . " objects.");
+            $this->writeToStdout("New import progress: " . count($objectIds) . " objects.");
         }
 
         if ($this->progress->status === 'completed') {
@@ -73,7 +82,7 @@ class MetApiImporter
                     break;
                 }
 
-                Log::info(sprintf("Batch: %d-%d of %d", $processed+1, min($processed+count($batch), $totalToProcess), $totalToProcess));
+                $this->writeToStdout(sprintf("Batch: %d-%d of %d", $processed+1, min($processed+count($batch), $totalToProcess), $totalToProcess));
 
                 $batchResults = $this->processBatch($batch);
                 $stats['imported'] += $batchResults['imported'];
@@ -89,23 +98,25 @@ class MetApiImporter
                 $this->progress->refresh();
 
                 if ($limit && $stats['imported'] >= $limit) {
-                    Log::info("Reached limit of $limit imported.");
+                    $this->writeToStdout("Reached limit of $limit imported.");
                     break;
                 }
 
                 if ($processed % ($batchSize * 10) == 0) {
-                    Log::info(sprintf("Progress: %.1f%% (%d/%d)", $this->getProgressPercentage(), $processed, $totalToProcess));
+                    $this->writeToStdout(sprintf("Progress: %.1f%% (%d/%d)", $this->getProgressPercentage(), $processed, $totalToProcess));
                 }
             }
 
             if ($processed >= $this->progress->total_objects) {
                 $this->progress->markAsCompleted();
+                $this->writeToStdout('Import completed.');
                 Log::info('Import completed.');
             }
 
         } catch (\Exception $e) {
             $this->progress->markAsFailed($e->getMessage());
             Log::error('Import failed: ' . $e->getMessage());
+            $this->writeToStdout('Import failed: ' . $e->getMessage());
             throw $e;
         }
 
@@ -114,6 +125,7 @@ class MetApiImporter
 
     /**
      * Process a batch – strict filters: must have images AND be public domain.
+     * All skip reasons are written to stdout.
      */
     protected function processBatch(array $objectIds): array
     {
@@ -122,6 +134,7 @@ class MetApiImporter
             try {
                 $data = $this->fetchObject($id);
                 if (!$data) {
+                    $this->writeToStdout("SKIP $id: No data fetched.");
                     $stats['skipped']++;
                     continue;
                 }
@@ -132,7 +145,7 @@ class MetApiImporter
                 $hasAnyImage = $hasPrimaryImage || $hasAdditionalImages;
 
                 if (!$hasAnyImage) {
-                    Log::debug("Skipping $id: No images available.");
+                    $this->writeToStdout("SKIP $id: No images available.");
                     $stats['skipped']++;
                     continue;
                 }
@@ -140,7 +153,7 @@ class MetApiImporter
                 // ✅ REQUIRE: must be public domain
                 $isPublicDomain = $data['isPublicDomain'] ?? false;
                 if (!$isPublicDomain) {
-                    Log::debug("Skipping $id: Not public domain.");
+                    $this->writeToStdout("SKIP $id: Not public domain.");
                     $stats['skipped']++;
                     continue;
                 }
@@ -148,7 +161,7 @@ class MetApiImporter
                 // ✅ REQUIRE: must be African (scoring filter)
                 $result = $this->filter->analyze($data);
                 if (!$result['is_african']) {
-                    Log::debug("Skipping $id: " . $result['reason']);
+                    $this->writeToStdout("SKIP $id: African filter failed. Score: {$result['score']}, Reason: {$result['reason']}");
                     $stats['skipped']++;
                     continue;
                 }
@@ -156,11 +169,14 @@ class MetApiImporter
                 $dto = ArtifactDto::fromMetApi($data, $this->source);
                 if ($this->save($dto)) {
                     $stats['imported']++;
+                    $this->writeToStdout("IMPORT $id: Success.");
                 } else {
+                    $this->writeToStdout("SKIP $id: Duplicate (already exists).");
                     $stats['skipped']++;
                 }
             } catch (\Exception $e) {
-                Log::error("Error on $id: " . $e->getMessage());
+                $this->writeToStdout("ERROR $id: " . $e->getMessage());
+                Log::error("ERROR $id: " . $e->getMessage());
                 $stats['failed']++;
             }
             usleep($this->rateLimitDelay);
@@ -192,6 +208,7 @@ class MetApiImporter
         $existing = Artifact::where('source', $this->source)->pluck('source_id')->map(fn($id) => (int)$id)->toArray();
         $uniqueIds = array_diff($uniqueIds, $existing);
 
+        $this->writeToStdout("Found " . count($uniqueIds) . " unique African objects after combining strategies.");
         Log::info("Found " . count($uniqueIds) . " unique African objects after combining strategies.");
 
         return array_values($uniqueIds);
@@ -208,22 +225,20 @@ class MetApiImporter
             $params = [
                 'q' => $term,
                 'departmentId' => $this->africanDepartmentId,
-                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+                'hasImages' => 'true',
             ];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
-            Log::debug("Department {$this->africanDepartmentId} + q='$term' found " . count($ids) . " objects.");
             usleep(50000);
         }
 
         $params = [
             'q' => 'art',
             'departmentId' => $this->africanDepartmentId,
-            'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+            'hasImages' => 'true',
         ];
         $ids = $this->searchWithParams($params);
         $allIds = array_merge($allIds, $ids);
-        Log::debug("Department {$this->africanDepartmentId} + q='art' found " . count($ids) . " objects.");
         usleep(50000);
     }
 
@@ -244,11 +259,10 @@ class MetApiImporter
             $params = [
                 'q' => $term,
                 'artistOrCulture' => 'true',
-                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+                'hasImages' => 'true',
             ];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
-            Log::debug("artistOrCulture + '$term' found " . count($ids) . " objects.");
             usleep(50000);
         }
     }
@@ -275,7 +289,7 @@ class MetApiImporter
                 $params = [
                     'q' => $artTerm,
                     'geoLocation' => $country,
-                    'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+                    'hasImages' => 'true',
                 ];
                 $ids = $this->searchWithParams($params);
                 $allIds = array_merge($allIds, $ids);
@@ -285,7 +299,7 @@ class MetApiImporter
             $params = [
                 'q' => $country,
                 'geoLocation' => $country,
-                'hasImages' => 'true', // ✅ REQUIRES IMAGES AT SEARCH LEVEL
+                'hasImages' => 'true',
             ];
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
