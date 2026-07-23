@@ -176,12 +176,17 @@ class MetApiImporter
     }
 
     /**
-     * Fetch an object with detailed error logging.
+     * Fetch object with proper User-Agent header.
      */
     protected function fetchObject(int $id): ?array
     {
         try {
-            $response = Http::timeout(15)->get("{$this->baseUrl}/objects/{$id}");
+            $response = Http::timeout(15)
+                ->withHeaders([
+                    'User-Agent' => 'African-Museum-Collection-API/1.0 (contact@example.com)',
+                    'Accept' => 'application/json',
+                ])
+                ->get("{$this->baseUrl}/objects/{$id}");
             
             if ($response->failed()) {
                 $status = $response->status();
@@ -195,6 +200,29 @@ class MetApiImporter
         } catch (\Exception $e) {
             $this->writeToStdout("EXCEPTION fetching $id: " . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Search with proper headers.
+     */
+    protected function searchWithParams(array $params): array
+    {
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders([
+                    'User-Agent' => 'African-Museum-Collection-API/1.0 (contact@example.com)',
+                    'Accept' => 'application/json',
+                ])
+                ->get("{$this->baseUrl}/search", $params);
+            if ($response->failed()) {
+                Log::warning("Search failed: " . json_encode($params) . " - status: " . $response->status());
+                return [];
+            }
+            return $response->json('objectIDs') ?? [];
+        } catch (\Exception $e) {
+            Log::warning("Search exception: " . $e->getMessage());
+            return [];
         }
     }
 
@@ -216,8 +244,6 @@ class MetApiImporter
 
         return array_values($uniqueIds);
     }
-
-    // ... (searchDepartment, searchByCulture, searchByGeoLocation, searchWithParams unchanged) ...
 
     protected function searchDepartment(array &$allIds): void
     {
@@ -274,21 +300,6 @@ class MetApiImporter
             $ids = $this->searchWithParams($params);
             $allIds = array_merge($allIds, $ids);
             usleep(50000);
-        }
-    }
-
-    protected function searchWithParams(array $params): array
-    {
-        try {
-            $response = Http::timeout(10)->get("{$this->baseUrl}/search", $params);
-            if ($response->failed()) {
-                Log::warning("Search failed: " . json_encode($params) . " - status: " . $response->status());
-                return [];
-            }
-            return $response->json('objectIDs') ?? [];
-        } catch (\Exception $e) {
-            Log::warning("Search exception: " . $e->getMessage());
-            return [];
         }
     }
 
