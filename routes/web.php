@@ -10,3 +10,4 @@ Route::get('/artifacts/{artifact}', [ArtifactController::class, 'show'])->name('
 Route::get('/import/trigger', [ImportController::class, 'trigger']);
 Route::get('/import/status', [ImportController::class, 'status']);
 Route::get('/import/reset', [ImportController::class, 'reset']);
+Route::get('/import/log', [ImportController::class, 'log']);

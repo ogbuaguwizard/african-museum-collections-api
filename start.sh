@@ -21,6 +21,10 @@ php artisan view:cache
 echo "Running migrations..."
 php artisan migrate --force
 
+# Start import in background (writes logs)
+echo "Starting import in background..."
+nohup php artisan import:met --limit=1000 --offset=0 >> storage/logs/import.log 2>&1 &
+
 echo "Starting PHP-FPM..."
 php-fpm -D
 

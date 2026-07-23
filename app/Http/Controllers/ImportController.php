@@ -38,8 +38,10 @@ class ImportController extends Controller
 
         $artisanPath = base_path('artisan');
         $logPath = storage_path('logs/import.log');
+        
+        // 🔥 Run synchronously for debugging (remove &)
         $command = sprintf(
-            'cd %s && php %s import:met --limit=%d --offset=%d > %s 2>&1 &',
+            'cd %s && php %s import:met --limit=%d --offset=%d > %s 2>&1',
             base_path(),
             $artisanPath,
             $limit,
@@ -47,14 +49,26 @@ class ImportController extends Controller
             $logPath
         );
 
-        Log::info('Triggering import batch: limit=' . $limit . ', offset=' . $offset);
+        Log::info('Triggering import: ' . $command);
         exec($command, $output, $returnCode);
 
+        // Check if the import actually started
+        $progress = ImportProgress::where('source', 'met')->first();
+        if ($progress) {
+            return response()->json([
+                'message' => 'Import completed.',
+                'status' => $progress->status,
+                'imported' => $progress->imported_objects,
+                'total' => $progress->total_objects,
+                'log_file' => $logPath,
+            ]);
+        }
+
         return response()->json([
-            'message' => 'Import batch started.',
-            'limit' => $limit,
-            'offset' => $offset,
-            'status_url' => url('/import/status?token=' . $this->token),
+            'message' => 'Import command executed but no progress record was created.',
+            'command' => $command,
+            'return_code' => $returnCode,
+            'output' => $output,
         ]);
     }
 
@@ -94,5 +108,30 @@ class ImportController extends Controller
 
         ImportProgress::where('source', 'met')->delete();
         return response()->json(['message' => 'Import progress reset.']);
+    }
+
+    /**
+     * View the import log file.
+     */
+    public function log(Request $request)
+    {
+        if ($request->query('token') !== $this->token) {
+            return response()->json(['error' => 'Invalid token'], 403);
+        }
+
+        $logPath = storage_path('logs/import.log');
+        
+        if (!file_exists($logPath)) {
+            return response()->json(['error' => 'Log file not found.'], 404);
+        }
+
+        $content = file_get_contents($logPath);
+        
+        // Return as plain text with proper formatting
+        return response()->make(
+            '<pre>' . htmlspecialchars($content) . '</pre>',
+            200,
+            ['Content-Type' => 'text/html']
+        );
     }
 }
